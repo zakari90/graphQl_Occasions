@@ -7,9 +7,7 @@ import User from "../models/user.js";
 import Event from "../models/event.js";
 import Booking from "../models/booking.js";
 import isLoggedin from "../middlewares/isLogin.js";
-import {PubSub} from "graphql-subscriptions"
 
-const pubsub = new PubSub()
 const resolvers = {
   Query: {
     events: async () => {
@@ -39,16 +37,13 @@ const resolvers = {
       }
     }),
 
-    bookings:  (isLoggedin, async (_, __, context) => {
-          console.log("bookings 🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹");
-
+    bookings: combineResolvers(isLoggedin, async (_, __, context) => {
       try {
         const bookings = await Booking.find({ user: context.user._id })
           .populate("event")
           .populate("user")
           .sort({ createdAt: -1 })
           .lean();
-console.log("//////////////////////", bookings.length);
 
         return bookings;
       } catch (error) {
@@ -61,53 +56,6 @@ console.log("//////////////////////", bookings.length);
   },
 
   Mutation: {
-
-   createEvent:(isLoggedin, async (_, args, context) => {
-  try {
-    const { title, description, date, price } = args.eventInput;
-
-    if (!title || !description || !date || price === undefined) {
-      throw new UserInputError("All fields are required");
-    }
-
-    const existingEvent = await Event.findOne({ title });
-    if (existingEvent) {
-      throw new UserInputError("Event already exists", {
-        invalidArgs: title,
-      });
-    }
-
-    const eventData = {
-      title,
-      description,
-      date: new Date(date),
-      price, 
-      creator: context.user._id,
-    };
-
-    const newEvent = new Event(eventData);
-    await newEvent.save();
-    
-    const populatedEvent = await Event.findById(newEvent._id)
-      .populate('creator')
-      .lean();
-      pubsub.publish("EVENT_ADDED", {eventAdded:populatedEvent})
-    return populatedEvent;
-
-  } catch (error) {
-    console.error("Error in createEvent:", error);
-    
-    // Re-throw specific errors
-    if (error instanceof UserInputError || error instanceof AuthenticationError) {
-      throw error;
-    }
-    
-    // Handle other errors
-    throw new UserInputError("Failed to create event", {
-      error: error.message,
-    });
-  }
-}), 
     createUser: async (_, args) => {
       try {
         const { username, email, password } = args.userInput;
@@ -188,6 +136,51 @@ console.log("//////////////////////", bookings.length);
         });
       }
     },
+createEvent: combineResolvers(isLoggedin, async (_, args, context) => {
+  console.log("createEvent started ");
+  
+  try {
+    const { title, description, date, price } = args.eventInput;
+
+    // Validate input
+    if (!title || !description || !date || price === undefined) {
+      throw new UserInputError("All fields are required");
+    }
+
+    const existingEvent = await Event.findOne({ title });
+    if (existingEvent) {
+      throw new UserInputError("Event already exists", {
+        invalidArgs: title,
+      });
+    }
+
+    const eventData = {
+      title,
+      description,
+      date,
+      price,
+      creator: context.user._id,
+    };
+
+    const newEvent = new Event(eventData);
+    await newEvent.save();
+
+    // Populate creator and return as plain object
+    const populatedEvent = await Event.findById(newEvent._id)
+      .populate('creator')
+      .lean();
+
+    console.log('Created event successfully:', populatedEvent);
+    return populatedEvent;
+
+  } catch (error) {
+    console.error("Error in createEvent:", error);
+    throw new UserInputError("Failed to create event", {
+      error: error.message,
+    });
+  }
+}),
+
 
     deleteEvent: combineResolvers(isLoggedin, async (_, { eventId }, context) => {
       try {
@@ -217,14 +210,9 @@ console.log("//////////////////////", bookings.length);
       }
     }),
 
-    bookEvent: async (_, { eventId }, context) => {
-      
-      console.log("bookEvent 🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹");
-
+    bookEvent: combineResolvers(isLoggedin, async (_, { eventId }, context) => {
       try {
-         if (!context.user) {
-          throw new AuthenticationError("Not authenticated");
-        }
+
         const event = await Event.findById(eventId);
         if (!event) {
           throw new UserInputError("Event not found", {
@@ -247,7 +235,7 @@ console.log("//////////////////////", bookings.length);
         });
 
         await booking.save();
-        console.log("Event booked successfully: 📅📅📅📅📅📅📅📅📅📅📅📅📅📅📅", booking);
+        console.log("Event booked successfully: 📅", booking._id);
 
         return booking;
       } catch (error) {
@@ -256,11 +244,9 @@ console.log("//////////////////////", bookings.length);
           error: error.message,
         });
       }
-    },
+    }),
 
-    cancelBooking:(isLoggedin,  async (_, { bookingId }, context) => {
-            console.log("cancelBooking 🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹🥹");
-
+    cancelBooking: combineResolvers(isLoggedin, async (_, { bookingId }, context) => {
       try {
         const booking = await Booking.findById(bookingId).populate("event");
         if (!booking) {
@@ -283,11 +269,6 @@ console.log("//////////////////////", bookings.length);
         });
       }
     }),
-  },
- Subscription: {
-    eventAdded: {
-      subscribe: () => pubsub.asyncIterator(['EVENT_ADDED']), 
-    },
   },
 };
 

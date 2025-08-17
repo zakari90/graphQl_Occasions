@@ -1,39 +1,64 @@
+import { ApolloServerPluginDrainHttpServer } from 'apollo-server-core';
+import { ApolloServer } from 'apollo-server-express';
+import dotenv from 'dotenv';
 import express from 'express';
 import { createServer } from 'http';
-import { ApolloServer } from 'apollo-server-express';
-import { ApolloServerPluginDrainHttpServer } from 'apollo-server-core';
-import typeDefs from './schema/index.js';
-import resolvers from './resovers/index.js';
-import morgan from 'morgan';
-import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import User from './models/user.js';
-import jwt from 'jsonwebtoken';
+import resolvers from './resovers/index.js';
+import typeDefs from './schema/index.js';
+import { WebSocketServer } from 'ws';
+import cors from "cors"
+import { makeExecutableSchema } from '@graphql-tools/schema';
+import  {useServer} from 'graphql-ws/lib/use/ws'
+
 dotenv.config();
 
 async function startServer() {
     const app = express();
-    app.use(morgan('dev'));
     const httpServer = createServer(app);
+    
     const PORT = process.env.PORT || 4000;
+app.use(cors({
+        origin: '*',
+        credentials: true,
+    }));
 
-    const server = new ApolloServer({
+    const schema = makeExecutableSchema({
         typeDefs,
-        resolvers,
+        resolvers})
+    const wsServer = new WebSocketServer({
+        server: httpServer,
+        path: '/graphql',
+    })
+    const serverCleanup = useServer({ schema }, wsServer)
+    const server = new ApolloServer({
+        schema,
         context: async ({ req }) => {
-            
             const auth = req ? req.headers.authorization : null
-            
             if (auth) {
                 const decodedToken = jwt.verify(
-                    auth, process.env.JWT_SECRET
-                )                
+                    auth.slice(4), process.env.JWT_SECRET
+                )
                 const user = await User.findById(decodedToken.id)
+                console.log("--------------------------*", user);
+                
                 return { user }
             }
         },
-        plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
-    });
+        plugins: [
+            ApolloServerPluginDrainHttpServer({ httpServer }),
+            {
+                async serverWillStart() {
+                    return {
+                        async drainServer() {
+                            serverCleanup.dispose()
+                        }
+                    }
+                }
+            }
+        ],    });
 
     await server.start();
     server.applyMiddleware({ app });

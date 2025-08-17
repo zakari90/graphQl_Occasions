@@ -55,11 +55,14 @@ const typeDefs = gql`
       createUser(userInput: UserInput!): authData
       createEvent(eventInput: EventInput!): Event
       bookEvent(eventId: ID!): Booking
-      cancelBooking(bookingId: ID!): Boolean
+      cancelBooking(bookingId: ID!): Event
       login(email: String!, password: String!): authData
       deleteEvent(eventId: ID!): [Event]
     }
 
+    type Subscription {
+      eventAdded: Event!
+    }
 
     `
 
